@@ -15,13 +15,22 @@ internal class Program
 	// Configurable: number of insert/select/update loop iterations
 	private const int NumberOfIterations = 1000;
 
+	// When true, wraps all field and table names in SQL with square brackets ([name]).
+	private const bool UseBrackets = true;
+
 	private const string EmptyDbFileName = "empty.mdb";
 	private const string WorkingDbFileName = "working.mdb";
 	private const string TableName = "TestTable";
 	private const string IdFieldName = "id_field";
-	private static string StampFieldPrefix => throw new InvalidDataException();
 
-	private static readonly List<(string FieldName, string DataType)> FieldList = [];
+	// All non-identity fields: drives CREATE TABLE, INSERT, SELECT, and UPDATE logic.
+	private static readonly List<(string FieldName, string DataType)> FieldList =
+	[
+		.. Enumerable.Range(1, 5).Select(x => ($"int_field_{x}", "int")),
+		.. Enumerable.Range(1, 5).Select(x => ($"guid_field_{x}", "guid")),
+		.. Enumerable.Range(1, 5).Select(x => ($"str_field_{x}", "varchar")),
+		.. Enumerable.Range(1, NumberOfStampFields).Select(x => ($"stamp_field_{x}", "datetime")),
+	];
 
 	static void Main(string[] args)
 	{
@@ -51,25 +60,9 @@ internal class Program
 			connection.Open();
 			Console.WriteLine("Connection opened.");
 
-			// Step 2: Create the table with an Id field and the configured DateTime fields
+			// Step 2: Create the table with an Id field and all fields from FieldList
 			CreateTable(connection);
 		}
-
-		// Generate field definitions
-		for (int x = 1; x <= 5; x++)
-			FieldList.Add(("int_field_" + x, "int"));
-
-		for (int x = 1; x <= 5; x++)
-			FieldList.Add(("guid_field_" + x, "guid"));
-
-		for (int x = 1; x <= 5; x++)
-			FieldList.Add(("str_field_" + x, "varchar"));
-
-		for (int x = 1; x <= NumberOfStampFields; x++)
-			FieldList.Add(("stamp_field_" + x, "datetime"));
-
-		// Global connection.
-		using var globalConn = new OleDbConnection(connectionString);
 
 		// Step 3: Loop: Insert, Select, Update
 		Console.WriteLine($"Starting {NumberOfIterations} iterations...");
@@ -117,75 +110,83 @@ internal class Program
 	}
 
 	/// <summary>
-	/// Creates the test table with a string Id field and <see cref="NumberOfStampFields"/>
-	/// DateTime stamp fields.
+	/// Returns <paramref name="name"/> optionally wrapped in square brackets,
+	/// controlled by <see cref="UseBrackets"/>.
+	/// </summary>
+	private static string Q(string name) => UseBrackets ? $"[{name}]" : name;
+
+	/// <summary>
+	/// Returns the SQL DDL type string for a given <paramref name="dataType"/> identifier.
+	/// </summary>
+	private static string GetSqlType(string dataType) => dataType.ToLowerInvariant() switch
+	{
+		"int"      => "INTEGER",
+		"guid"     => "GUID",
+		"varchar"  => "VARCHAR(255)",
+		"datetime" => "DATETIME",
+		_ => throw new NotSupportedException($"Unsupported data type: {dataType}"),
+	};
+
+	/// <summary>
+	/// Returns the <see cref="OleDbType"/> for a given <paramref name="dataType"/> identifier.
+	/// </summary>
+	private static OleDbType GetOleDbType(string dataType) => dataType.ToLowerInvariant() switch
+	{
+		"int"      => OleDbType.Integer,
+		"guid"     => OleDbType.Guid,
+		"varchar"  => OleDbType.VarChar,
+		"datetime" => OleDbType.Date,
+		_ => throw new NotSupportedException($"Unsupported data type: {dataType}"),
+	};
+
+	/// <summary>
+	/// Returns a sample value for a given <paramref name="dataType"/> identifier.
+	/// </summary>
+	private static object GetFieldValue(string dataType) => dataType.ToLowerInvariant() switch
+	{
+		"int"      => 42,
+		"guid"     => Guid.NewGuid(),
+		"varchar"  => "sample",
+		"datetime" => DateTime.Now,
+		_ => throw new NotSupportedException($"Unsupported data type: {dataType}"),
+	};
+
+	/// <summary>
+	/// Creates the test table with a string Id field and all fields defined in
+	/// <see cref="FieldList"/>, then creates an index on each field.
 	/// </summary>
 	private static void CreateTable(OleDbConnection connection)
 	{
 		var columns = new System.Text.StringBuilder();
-		// TableName, IdFieldName and StampFieldPrefix are compile-time constants, not user input.
-		columns.Append($"[{IdFieldName}] varchar NOT NULL PRIMARY KEY");
-		for (int i = 1; i <= NumberOfStampFields; i++)
-		{
-			columns.Append($", [{StampFieldPrefix}{i}] DATETIME");
-		}
+		// TableName and IdFieldName are compile-time constants, not user input.
+		columns.Append($"{Q(IdFieldName)} VARCHAR(255) NOT NULL PRIMARY KEY");
+		foreach (var (fieldName, dataType) in FieldList)
+			columns.Append($", {Q(fieldName)} {GetSqlType(dataType)}");
 
-		string sql = $"CREATE TABLE [{TableName}] ({columns})";
+		string sql = $"CREATE TABLE {Q(TableName)} ({columns})";
 		Console.WriteLine($"Creating table: {sql}");
 
 		using var cmd = new OleDbCommand(sql, connection);
 		cmd.ExecuteNonQuery();
 		Console.WriteLine("Table created.");
 
-		sql = $"CREATE INDEX [idx_id_field] ON [{TableName}] ([id_field]) ";
-		using var cmdIdx1 = new OleDbCommand(sql, connection);
-		cmdIdx1.ExecuteNonQuery();
+		sql = $"CREATE INDEX {Q("idx_" + IdFieldName)} ON {Q(TableName)} ({Q(IdFieldName)})";
+		using var cmdIdx = new OleDbCommand(sql, connection);
+		cmdIdx.ExecuteNonQuery();
 
-		for (int i = 1; i <= NumberOfStampFields; i++)
+		foreach (var (fieldName, _) in FieldList)
 		{
-			var stampField = $"{StampFieldPrefix}{i}";
-			sql = $"CREATE INDEX [idx_{stampField}] ON [{TableName}] ([{stampField}]) ";
-			using var cmdIdxLoop = new OleDbCommand(sql, connection);
-			cmdIdxLoop.ExecuteNonQuery();
+			sql = $"CREATE INDEX {Q("idx_" + fieldName)} ON {Q(TableName)} ({Q(fieldName)})";
+			using var cmdIdxField = new OleDbCommand(sql, connection);
+			cmdIdxField.ExecuteNonQuery();
 		}
 
-		Console.WriteLine("Index created.");
-	}
-
-	/// <summary>
-	/// Builds a comma-separated list of all stamp field names.
-	/// </summary>
-	private static string GetStampFieldList()
-	{
-		return string.Join(", ", Enumerable.Range(1, NumberOfStampFields)
-			.Select(i => $"[{StampFieldPrefix}{i}]"));
-	}
-
-	/// <summary>
-	/// Builds a comma-separated list of parameter placeholders for the stamp fields.
-	/// </summary>
-	private static string GetStampParamPlaceholders()
-	{
-		return string.Join(", ", Enumerable.Repeat("?", NumberOfStampFields));
-	}
-
-	/// <summary>
-	/// Adds all stamp field parameters to the given command with the provided DateTime value.
-	/// OleDb uses positional parameters (?); the parameter names passed to AddWithValue are
-	/// metadata only and are ignored at runtime.
-	/// </summary>
-	private static void AddStampParameters(OleDbCommand cmd)
-	{
-		for (int i = 1; i <= NumberOfStampFields; i++)
-		{
-			// Parameter name is ignored by OleDb (positional binding); value order matters.
-			cmd.Parameters.Add($"@{StampFieldPrefix}{i}", OleDbType.Date).Value = DateTime.Now;
-		}
+		Console.WriteLine("Indexes created.");
 	}
 
 	private static bool RecordExists(OleDbConnection connection, string id)
 	{
-		string sql = $"SELECT 1 FROM [{TableName}] WHERE [{IdFieldName}] = ?";
+		string sql = $"SELECT 1 FROM {Q(TableName)} WHERE {Q(IdFieldName)} = ?";
 		using var cmd = new OleDbCommand(sql, connection);
 		cmd.Parameters.AddWithValue($"@{IdFieldName}", id);
 
@@ -197,18 +198,21 @@ internal class Program
 	}
 
 	/// <summary>
-	/// Inserts a new record with the given id and the current UTC time for all stamp fields.
+	/// Inserts a new record with the given id and sample values for all fields in
+	/// <see cref="FieldList"/>.
 	/// </summary>
 	private static void InsertRecord(OleDbConnection connection, string id)
 	{
-		string fields = $"[{IdFieldName}], {GetStampFieldList()}";
-		string values = $"?, {GetStampParamPlaceholders()}";
+		string fields = $"{Q(IdFieldName)}, {string.Join(", ", FieldList.Select(f => Q(f.FieldName)))}";
+		string values = $"?, {string.Join(", ", FieldList.Select(_ => "?"))}";
 
-		string sql = $"INSERT INTO [{TableName}] ({fields}) VALUES ({values})";
+		string sql = $"INSERT INTO {Q(TableName)} ({fields}) VALUES ({values})";
 		using var cmd = new OleDbCommand(sql, connection);
 
+		// OleDb uses positional parameters (?); parameter names are metadata only.
 		cmd.Parameters.AddWithValue($"@{IdFieldName}", id);
-		AddStampParameters(cmd);
+		foreach (var (fieldName, dataType) in FieldList)
+			cmd.Parameters.Add($"@{fieldName}", GetOleDbType(dataType)).Value = GetFieldValue(dataType);
 
 		cmd.ExecuteNonQuery();
 	}
@@ -218,39 +222,39 @@ internal class Program
 	/// </summary>
 	private static void SelectRecord(OleDbConnection connection, string id)
 	{
-		string sql = $"SELECT [{IdFieldName}], {GetStampFieldList()} FROM [{TableName}] WHERE [{IdFieldName}] = ?";
+		string fieldList = $"{Q(IdFieldName)}, {string.Join(", ", FieldList.Select(f => Q(f.FieldName)))}";
+		string sql = $"SELECT {fieldList} FROM {Q(TableName)} WHERE {Q(IdFieldName)} = ?";
 		using var cmd = new OleDbCommand(sql, connection);
 		cmd.Parameters.AddWithValue($"@{IdFieldName}", id);
 
 		using var reader = cmd.ExecuteReader();
 		if (reader.Read())
 		{
-			// Read the id field
+			// Read the id field (index 0)
 			_ = reader.GetString(0);
 
-			// Read all stamp fields
-			for (int i = 1; i <= NumberOfStampFields; i++)
+			// Read all fields from FieldList (indices 1..FieldList.Count)
+			for (int i = 0; i < FieldList.Count; i++)
 			{
-				if (!reader.IsDBNull(i))
-				{
-					_ = reader.GetValue(i);
-				}
+				if (!reader.IsDBNull(i + 1))
+					_ = reader.GetValue(i + 1);
 			}
 		}
 	}
 
 	/// <summary>
-	/// Updates all stamp fields of the record with the given id to the current UTC time.
+	/// Updates all fields in <see cref="FieldList"/> for the record with the given id.
 	/// </summary>
 	private static void UpdateRecord(OleDbConnection connection, string id)
 	{
-		string setClause = string.Join(", ", Enumerable.Range(1, NumberOfStampFields)
-			.Select(i => $"[{StampFieldPrefix}{i}] = ?"));
+		string setClause = string.Join(", ", FieldList.Select(f => $"{Q(f.FieldName)} = ?"));
 
-		string sql = $"UPDATE [{TableName}] SET {setClause} WHERE [{IdFieldName}] = ?";
+		string sql = $"UPDATE {Q(TableName)} SET {setClause} WHERE {Q(IdFieldName)} = ?";
 		using var cmd = new OleDbCommand(sql, connection);
 
-		AddStampParameters(cmd);
+		// OleDb uses positional parameters (?); parameter names are metadata only.
+		foreach (var (fieldName, dataType) in FieldList)
+			cmd.Parameters.Add($"@{fieldName}", GetOleDbType(dataType)).Value = GetFieldValue(dataType);
 		cmd.Parameters.AddWithValue($"@{IdFieldName}", id);
 
 		cmd.ExecuteNonQuery();
