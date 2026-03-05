@@ -61,10 +61,12 @@ internal class Program
         for (int i = 0; i < NumberOfIterations; i++)
         {
             bool recordExists;
+            string id = i.ToString();
+
             using (var connection = new OleDbConnection(connectionString))
             {
                 connection.Open();
-                recordExists = RecordExists(connection, i);
+                recordExists = RecordExists(connection, id);
             }
 
             if (!recordExists)
@@ -72,20 +74,20 @@ internal class Program
                 using (var connection = new OleDbConnection(connectionString))
                 {
                     connection.Open();
-                    InsertRecord(connection, i);
+                    InsertRecord(connection, id);
                 }
             }
 
             using (var connection = new OleDbConnection(connectionString))
             {
                 connection.Open();
-                SelectRecord(connection, i);
+                SelectRecord(connection, id);
             }
 
             using (var connection = new OleDbConnection(connectionString))
             {
                 connection.Open();
-                UpdateRecord(connection, i);
+                UpdateRecord(connection, id);
             }
 
             if ((i + 1) % 10 == 0
@@ -100,14 +102,14 @@ internal class Program
     }
 
     /// <summary>
-    /// Creates the test table with an integer Id field and <see cref="NumberOfDateTimeFields"/>
+    /// Creates the test table with a string Id field and <see cref="NumberOfDateTimeFields"/>
     /// DateTime stamp fields.
     /// </summary>
     private static void CreateTable(OleDbConnection connection)
     {
         var columns = new System.Text.StringBuilder();
         // TableName, IdFieldName and StampFieldPrefix are compile-time constants, not user input.
-        columns.Append($"[{IdFieldName}] INTEGER NOT NULL PRIMARY KEY");
+        columns.Append($"[{IdFieldName}] TEXT NOT NULL PRIMARY KEY");
         for (int i = 1; i <= NumberOfDateTimeFields; i++)
         {
             columns.Append($", [{StampFieldPrefix}{i}] DATETIME");
@@ -152,7 +154,7 @@ internal class Program
         }
     }
 
-	private static bool RecordExists(OleDbConnection connection, int id)
+	private static bool RecordExists(OleDbConnection connection, string id)
 	{
 		string sql = $"SELECT 1 FROM [{TableName}] WHERE [{IdFieldName}] = ?";
 		using var cmd = new OleDbCommand(sql, connection);
@@ -168,7 +170,7 @@ internal class Program
 	/// <summary>
 	/// Inserts a new record with the given id and the current UTC time for all stamp fields.
 	/// </summary>
-	private static void InsertRecord(OleDbConnection connection, int id)
+	private static void InsertRecord(OleDbConnection connection, string id)
     {
         string fields = $"[{IdFieldName}], {GetStampFieldList()}";
         string values = $"?, {GetStampParamPlaceholders()}";
@@ -185,7 +187,7 @@ internal class Program
     /// <summary>
     /// Selects the record with the given id and reads all fields.
     /// </summary>
-    private static void SelectRecord(OleDbConnection connection, int id)
+    private static void SelectRecord(OleDbConnection connection, string id)
     {
         string sql = $"SELECT [{IdFieldName}], {GetStampFieldList()} FROM [{TableName}] WHERE [{IdFieldName}] = ?";
         using var cmd = new OleDbCommand(sql, connection);
@@ -195,7 +197,7 @@ internal class Program
         if (reader.Read())
         {
             // Read the id field
-            _ = reader.GetInt32(0);
+            _ = reader.GetString(0);
 
             // Read all stamp fields
             for (int i = 1; i <= NumberOfDateTimeFields; i++)
@@ -211,7 +213,7 @@ internal class Program
     /// <summary>
     /// Updates all stamp fields of the record with the given id to the current UTC time.
     /// </summary>
-    private static void UpdateRecord(OleDbConnection connection, int id)
+    private static void UpdateRecord(OleDbConnection connection, string id)
     {
         string setClause = string.Join(", ", Enumerable.Range(1, NumberOfDateTimeFields)
             .Select(i => $"[{StampFieldPrefix}{i}] = ?"));
