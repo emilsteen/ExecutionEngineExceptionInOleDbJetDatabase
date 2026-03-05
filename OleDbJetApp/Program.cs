@@ -9,14 +9,11 @@ namespace OleDbJetApp;
 /// </summary>
 internal class Program
 {
-	// Configurable: number of DateTime (stamp) fields in the table
-	private const int NumberOfStampFields = 20;
-
 	// Configurable: number of insert/select/update loop iterations
-	private const int NumberOfIterations = 1000;
+	private const int NumberOfIterations = 10;
 
 	// When true, wraps all field and table names in SQL with square brackets ([name]).
-	private const bool UseBrackets = true;
+	private const bool UseBrackets = false;
 
 	private const string EmptyDbFileName = "empty.mdb";
 	private const string WorkingDbFileName = "working.mdb";
@@ -24,18 +21,11 @@ internal class Program
 	private const string IdFieldName = "id_field";
 
 	// All non-identity fields: drives CREATE TABLE, INSERT, SELECT, and UPDATE logic.
-	private static readonly List<(string FieldName, string DataType)> FieldList =
-	[
-		.. Enumerable.Range(1, 5).Select(x => ($"int_field_{x}", "int")),
-		.. Enumerable.Range(1, 5).Select(x => ($"guid_field_{x}", "guid")),
-		.. Enumerable.Range(1, 5).Select(x => ($"str_field_{x}", "varchar")),
-		.. Enumerable.Range(1, NumberOfStampFields).Select(x => ($"stamp_field_{x}", "datetime")),
-	];
+	private static readonly List<(string FieldName, string DataType)> FieldList = [];
 
 	static void Main(string[] args)
 	{
 		Console.WriteLine("OleDb Jet Database Test");
-		Console.WriteLine($"Stamp fields: {NumberOfStampFields}");
 		Console.WriteLine($"Iterations: {NumberOfIterations}");
 		Console.WriteLine();
 
@@ -54,6 +44,34 @@ internal class Program
 
 		Console.WriteLine($"Copying '{EmptyDbFileName}' -> '{WorkingDbFileName}'...");
 		File.Copy(emptyDbPath, workingDbPath, overwrite: true);
+
+		// Generate field definitions
+#if sequential
+		for (int x = 1; x <= 5; x++)
+			FieldList.Add(("int_field_" + x, "int"));
+
+		for (int x = 1; x <= 5; x++)
+			FieldList.Add(("guid_field_" + x, "guid"));
+
+		for (int x = 1; x <= 5; x++)
+			FieldList.Add(("str_field_" + x, "varchar"));
+
+		for (int x = 1; x <= 20; x++)
+			FieldList.Add(("stamp_field_" + x, "datetime"));
+#else
+		var cnt = 1;
+		for (int x = 1; x <= 5; x++)
+		{
+			FieldList.Add(("int_field_" + cnt++, "int"));
+			FieldList.Add(("guid_field_" + cnt++, "guid"));
+			FieldList.Add(("str_field_" + cnt++, "varchar"));
+			FieldList.Add(("stamp_field_" + cnt++, "datetime"));
+			FieldList.Add(("stamp_field_" + cnt++, "datetime"));
+			FieldList.Add(("stamp_field_" + cnt++, "datetime"));
+			FieldList.Add(("stamp_field_" + cnt++, "datetime"));
+		}
+#endif
+
 
 		using (var connection = new OleDbConnection(connectionString))
 		{
@@ -170,12 +188,19 @@ internal class Program
 		cmd.ExecuteNonQuery();
 		Console.WriteLine("Table created.");
 
+		var maxIndexCount = 25;
+		var indexCount = 0;
+
 		sql = $"CREATE INDEX {Q("idx_" + IdFieldName)} ON {Q(TableName)} ({Q(IdFieldName)})";
 		using var cmdIdx = new OleDbCommand(sql, connection);
 		cmdIdx.ExecuteNonQuery();
+		indexCount++;
 
 		foreach (var (fieldName, _) in FieldList)
 		{
+			if (indexCount++ >= maxIndexCount)
+				continue;
+
 			sql = $"CREATE INDEX {Q("idx_" + fieldName)} ON {Q(TableName)} ({Q(fieldName)})";
 			using var cmdIdxField = new OleDbCommand(sql, connection);
 			cmdIdxField.ExecuteNonQuery();
