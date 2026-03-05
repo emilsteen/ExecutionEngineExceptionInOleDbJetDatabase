@@ -14,8 +14,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="empty.mdb">
+    <Content Include="..\empty.mdb">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>empty.mdb</Link>
     </Content>
   </ItemGroup>
 
