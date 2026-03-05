@@ -35,33 +35,33 @@ internal class Program
 
 		string connectionString = $"Provider=Microsoft.ACE.OLEDB.12.0;Data Source={workingDbPath};";
 
-        if (!File.Exists(workingDbPath))
+        if (!File.Exists(emptyDbPath))
         {
-            if (!File.Exists(emptyDbPath))
-            {
-                Console.Error.WriteLine($"Error: '{emptyDbPath}' not found.");
-                Environment.Exit(1);
-            }
-
-            Console.WriteLine($"Copying '{EmptyDbFileName}' -> '{WorkingDbFileName}'...");
-            File.Copy(emptyDbPath, workingDbPath, overwrite: true);
-
-            using (var connection = new OleDbConnection(connectionString))
-            {
-                connection.Open();
-                Console.WriteLine("Connection opened.");
-
-                // Step 2: Create the table with an Id field and the configured DateTime fields
-                CreateTable(connection);
-            }
+            Console.Error.WriteLine($"Error: '{emptyDbPath}' not found.");
+            Environment.Exit(1);
         }
+
+        Console.WriteLine($"Copying '{EmptyDbFileName}' -> '{WorkingDbFileName}'...");
+        File.Copy(emptyDbPath, workingDbPath, overwrite: true);
+
+        using (var connection = new OleDbConnection(connectionString))
+        {
+            connection.Open();
+            Console.WriteLine("Connection opened.");
+
+            // Step 2: Create the table with an Id field and the configured DateTime fields
+            CreateTable(connection);
+        }
+
+        // Global connection.
+        using var globalConn = new OleDbConnection(connectionString);
 
 		// Step 3: Loop: Insert, Select, Update
 		Console.WriteLine($"Starting {NumberOfIterations} iterations...");
         for (int i = 0; i < NumberOfIterations; i++)
         {
             bool recordExists;
-            string id = i.ToString();
+            string id = $"record-id-{i}";
 
             using (var connection = new OleDbConnection(connectionString))
             {
@@ -109,7 +109,7 @@ internal class Program
     {
         var columns = new System.Text.StringBuilder();
         // TableName, IdFieldName and StampFieldPrefix are compile-time constants, not user input.
-        columns.Append($"[{IdFieldName}] TEXT NOT NULL PRIMARY KEY");
+        columns.Append($"[{IdFieldName}] varchar NOT NULL PRIMARY KEY");
         for (int i = 1; i <= NumberOfDateTimeFields; i++)
         {
             columns.Append($", [{StampFieldPrefix}{i}] DATETIME");
@@ -121,12 +121,26 @@ internal class Program
         using var cmd = new OleDbCommand(sql, connection);
         cmd.ExecuteNonQuery();
         Console.WriteLine("Table created.");
-    }
 
-    /// <summary>
-    /// Builds a comma-separated list of all stamp field names.
-    /// </summary>
-    private static string GetStampFieldList()
+		sql = $"CREATE INDEX [idx_id_field] ON [{TableName}] ([id_field]) ";
+		using var cmdIdx1 = new OleDbCommand(sql, connection);
+		cmdIdx1.ExecuteNonQuery();
+
+		for (int i = 1; i <= NumberOfDateTimeFields; i++)
+		{
+            var stampField = $"{StampFieldPrefix}{i}";
+			sql = $"CREATE INDEX [idx_{stampField}] ON [{TableName}] ([{stampField}]) ";
+			using var cmdIdxLoop = new OleDbCommand(sql, connection);
+			cmdIdxLoop.ExecuteNonQuery();
+		}
+
+		Console.WriteLine("Index created.");
+	}
+
+	/// <summary>
+	/// Builds a comma-separated list of all stamp field names.
+	/// </summary>
+	private static string GetStampFieldList()
     {
         return string.Join(", ", Enumerable.Range(1, NumberOfDateTimeFields)
             .Select(i => $"[{StampFieldPrefix}{i}]"));
