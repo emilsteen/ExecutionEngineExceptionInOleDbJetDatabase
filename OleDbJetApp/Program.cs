@@ -9,126 +9,141 @@ namespace OleDbJetApp;
 /// </summary>
 internal class Program
 {
-    // Configurable: number of DateTime (stamp) fields in the table
-    private const int NumberOfDateTimeFields = 20;
+	// Configurable: number of DateTime (stamp) fields in the table
+	private const int NumberOfStampFields = 20;
 
-    // Configurable: number of insert/select/update loop iterations
-    private const int NumberOfIterations = 1000;
+	// Configurable: number of insert/select/update loop iterations
+	private const int NumberOfIterations = 1000;
 
-    private const string EmptyDbFileName = "empty.mdb";
-    private const string WorkingDbFileName = "working.mdb";
-    private const string TableName = "TestTable";
-    private const string IdFieldName = "id_field";
-    private const string StampFieldPrefix = "stamp_field_";
+	private const string EmptyDbFileName = "empty.mdb";
+	private const string WorkingDbFileName = "working.mdb";
+	private const string TableName = "TestTable";
+	private const string IdFieldName = "id_field";
+	private static string StampFieldPrefix => throw new InvalidDataException();
 
-    static void Main(string[] args)
-    {
-        Console.WriteLine("OleDb Jet Database Test");
-        Console.WriteLine($"DateTime fields: {NumberOfDateTimeFields}");
-        Console.WriteLine($"Iterations: {NumberOfIterations}");
-        Console.WriteLine();
+	private static readonly List<(string FieldName, string DataType)> FieldList = [];
+
+	static void Main(string[] args)
+	{
+		Console.WriteLine("OleDb Jet Database Test");
+		Console.WriteLine($"Stamp fields: {NumberOfStampFields}");
+		Console.WriteLine($"Iterations: {NumberOfIterations}");
+		Console.WriteLine();
 
 
-        // Step 1: Copy the empty database template to the working database path
-        string emptyDbPath = Path.Combine(AppContext.BaseDirectory, EmptyDbFileName);
-        string workingDbPath = Path.Combine(AppContext.BaseDirectory, WorkingDbFileName);
+		// Step 1: Copy the empty database template to the working database path
+		string emptyDbPath = Path.Combine(AppContext.BaseDirectory, EmptyDbFileName);
+		string workingDbPath = Path.Combine(AppContext.BaseDirectory, WorkingDbFileName);
 
 		string connectionString = $"Provider=Microsoft.ACE.OLEDB.12.0;Data Source={workingDbPath};";
 
-        if (!File.Exists(emptyDbPath))
-        {
-            Console.Error.WriteLine($"Error: '{emptyDbPath}' not found.");
-            Environment.Exit(1);
-        }
+		if (!File.Exists(emptyDbPath))
+		{
+			Console.Error.WriteLine($"Error: '{emptyDbPath}' not found.");
+			Environment.Exit(1);
+		}
 
-        Console.WriteLine($"Copying '{EmptyDbFileName}' -> '{WorkingDbFileName}'...");
-        File.Copy(emptyDbPath, workingDbPath, overwrite: true);
+		Console.WriteLine($"Copying '{EmptyDbFileName}' -> '{WorkingDbFileName}'...");
+		File.Copy(emptyDbPath, workingDbPath, overwrite: true);
 
-        using (var connection = new OleDbConnection(connectionString))
-        {
-            connection.Open();
-            Console.WriteLine("Connection opened.");
+		using (var connection = new OleDbConnection(connectionString))
+		{
+			connection.Open();
+			Console.WriteLine("Connection opened.");
 
-            // Step 2: Create the table with an Id field and the configured DateTime fields
-            CreateTable(connection);
-        }
+			// Step 2: Create the table with an Id field and the configured DateTime fields
+			CreateTable(connection);
+		}
 
-        // Global connection.
-        using var globalConn = new OleDbConnection(connectionString);
+		// Generate field definitions
+		for (int x = 1; x <= 5; x++)
+			FieldList.Add(("int_field_" + x, "int"));
+
+		for (int x = 1; x <= 5; x++)
+			FieldList.Add(("guid_field_" + x, "guid"));
+
+		for (int x = 1; x <= 5; x++)
+			FieldList.Add(("str_field_" + x, "varchar"));
+
+		for (int x = 1; x <= NumberOfStampFields; x++)
+			FieldList.Add(("stamp_field_" + x, "datetime"));
+
+		// Global connection.
+		using var globalConn = new OleDbConnection(connectionString);
 
 		// Step 3: Loop: Insert, Select, Update
 		Console.WriteLine($"Starting {NumberOfIterations} iterations...");
-        for (int i = 0; i < NumberOfIterations; i++)
-        {
-            bool recordExists;
-            string id = $"record-id-{i}";
+		for (int i = 0; i < NumberOfIterations; i++)
+		{
+			bool recordExists;
+			string id = $"record-id-{i}";
 
-            using (var connection = new OleDbConnection(connectionString))
-            {
-                connection.Open();
-                recordExists = RecordExists(connection, id);
-            }
+			using (var connection = new OleDbConnection(connectionString))
+			{
+				connection.Open();
+				recordExists = RecordExists(connection, id);
+			}
 
-            if (!recordExists)
-            {
-                using (var connection = new OleDbConnection(connectionString))
-                {
-                    connection.Open();
-                    InsertRecord(connection, id);
-                }
-            }
+			if (!recordExists)
+			{
+				using (var connection = new OleDbConnection(connectionString))
+				{
+					connection.Open();
+					InsertRecord(connection, id);
+				}
+			}
 
-            using (var connection = new OleDbConnection(connectionString))
-            {
-                connection.Open();
-                SelectRecord(connection, id);
-            }
+			using (var connection = new OleDbConnection(connectionString))
+			{
+				connection.Open();
+				SelectRecord(connection, id);
+			}
 
-            using (var connection = new OleDbConnection(connectionString))
-            {
-                connection.Open();
-                UpdateRecord(connection, id);
-            }
+			using (var connection = new OleDbConnection(connectionString))
+			{
+				connection.Open();
+				UpdateRecord(connection, id);
+			}
 
-            if ((i + 1) % 10 == 0
-                || (i + 1) < 10)
-            {
-                Console.WriteLine($"  Completed {i + 1} iterations.");
-            }
-        }
+			if ((i + 1) % 10 == 0
+				|| (i + 1) < 10)
+			{
+				Console.WriteLine($"  Completed {i + 1} iterations.");
+			}
+		}
 
-        Console.WriteLine();
-        Console.WriteLine("Done! No System.ExecutionEngineException occurred.");
-    }
+		Console.WriteLine();
+		Console.WriteLine("Done! No System.ExecutionEngineException occurred.");
+	}
 
-    /// <summary>
-    /// Creates the test table with a string Id field and <see cref="NumberOfDateTimeFields"/>
-    /// DateTime stamp fields.
-    /// </summary>
-    private static void CreateTable(OleDbConnection connection)
-    {
-        var columns = new System.Text.StringBuilder();
-        // TableName, IdFieldName and StampFieldPrefix are compile-time constants, not user input.
-        columns.Append($"[{IdFieldName}] varchar NOT NULL PRIMARY KEY");
-        for (int i = 1; i <= NumberOfDateTimeFields; i++)
-        {
-            columns.Append($", [{StampFieldPrefix}{i}] DATETIME");
-        }
+	/// <summary>
+	/// Creates the test table with a string Id field and <see cref="NumberOfStampFields"/>
+	/// DateTime stamp fields.
+	/// </summary>
+	private static void CreateTable(OleDbConnection connection)
+	{
+		var columns = new System.Text.StringBuilder();
+		// TableName, IdFieldName and StampFieldPrefix are compile-time constants, not user input.
+		columns.Append($"[{IdFieldName}] varchar NOT NULL PRIMARY KEY");
+		for (int i = 1; i <= NumberOfStampFields; i++)
+		{
+			columns.Append($", [{StampFieldPrefix}{i}] DATETIME");
+		}
 
-        string sql = $"CREATE TABLE [{TableName}] ({columns})";
-        Console.WriteLine($"Creating table: {sql}");
+		string sql = $"CREATE TABLE [{TableName}] ({columns})";
+		Console.WriteLine($"Creating table: {sql}");
 
-        using var cmd = new OleDbCommand(sql, connection);
-        cmd.ExecuteNonQuery();
-        Console.WriteLine("Table created.");
+		using var cmd = new OleDbCommand(sql, connection);
+		cmd.ExecuteNonQuery();
+		Console.WriteLine("Table created.");
 
 		sql = $"CREATE INDEX [idx_id_field] ON [{TableName}] ([id_field]) ";
 		using var cmdIdx1 = new OleDbCommand(sql, connection);
 		cmdIdx1.ExecuteNonQuery();
 
-		for (int i = 1; i <= NumberOfDateTimeFields; i++)
+		for (int i = 1; i <= NumberOfStampFields; i++)
 		{
-            var stampField = $"{StampFieldPrefix}{i}";
+			var stampField = $"{StampFieldPrefix}{i}";
 			sql = $"CREATE INDEX [idx_{stampField}] ON [{TableName}] ([{stampField}]) ";
 			using var cmdIdxLoop = new OleDbCommand(sql, connection);
 			cmdIdxLoop.ExecuteNonQuery();
@@ -141,32 +156,32 @@ internal class Program
 	/// Builds a comma-separated list of all stamp field names.
 	/// </summary>
 	private static string GetStampFieldList()
-    {
-        return string.Join(", ", Enumerable.Range(1, NumberOfDateTimeFields)
-            .Select(i => $"[{StampFieldPrefix}{i}]"));
-    }
+	{
+		return string.Join(", ", Enumerable.Range(1, NumberOfStampFields)
+			.Select(i => $"[{StampFieldPrefix}{i}]"));
+	}
 
-    /// <summary>
-    /// Builds a comma-separated list of parameter placeholders for the stamp fields.
-    /// </summary>
-    private static string GetStampParamPlaceholders()
-    {
-        return string.Join(", ", Enumerable.Repeat("?", NumberOfDateTimeFields));
-    }
+	/// <summary>
+	/// Builds a comma-separated list of parameter placeholders for the stamp fields.
+	/// </summary>
+	private static string GetStampParamPlaceholders()
+	{
+		return string.Join(", ", Enumerable.Repeat("?", NumberOfStampFields));
+	}
 
-    /// <summary>
-    /// Adds all stamp field parameters to the given command with the provided DateTime value.
-    /// OleDb uses positional parameters (?); the parameter names passed to AddWithValue are
-    /// metadata only and are ignored at runtime.
-    /// </summary>
-    private static void AddStampParameters(OleDbCommand cmd)
-    {
-        for (int i = 1; i <= NumberOfDateTimeFields; i++)
-        {
+	/// <summary>
+	/// Adds all stamp field parameters to the given command with the provided DateTime value.
+	/// OleDb uses positional parameters (?); the parameter names passed to AddWithValue are
+	/// metadata only and are ignored at runtime.
+	/// </summary>
+	private static void AddStampParameters(OleDbCommand cmd)
+	{
+		for (int i = 1; i <= NumberOfStampFields; i++)
+		{
 			// Parameter name is ignored by OleDb (positional binding); value order matters.
 			cmd.Parameters.Add($"@{StampFieldPrefix}{i}", OleDbType.Date).Value = DateTime.Now;
-        }
-    }
+		}
+	}
 
 	private static bool RecordExists(OleDbConnection connection, string id)
 	{
@@ -175,69 +190,69 @@ internal class Program
 		cmd.Parameters.AddWithValue($"@{IdFieldName}", id);
 
 		var result = cmd.ExecuteScalar();
-        if (result is int intResult)
-            return intResult == 1;
+		if (result is int intResult)
+			return intResult == 1;
 
-        return false;
+		return false;
 	}
 
 	/// <summary>
 	/// Inserts a new record with the given id and the current UTC time for all stamp fields.
 	/// </summary>
 	private static void InsertRecord(OleDbConnection connection, string id)
-    {
-        string fields = $"[{IdFieldName}], {GetStampFieldList()}";
-        string values = $"?, {GetStampParamPlaceholders()}";
+	{
+		string fields = $"[{IdFieldName}], {GetStampFieldList()}";
+		string values = $"?, {GetStampParamPlaceholders()}";
 
-        string sql = $"INSERT INTO [{TableName}] ({fields}) VALUES ({values})";
-        using var cmd = new OleDbCommand(sql, connection);
+		string sql = $"INSERT INTO [{TableName}] ({fields}) VALUES ({values})";
+		using var cmd = new OleDbCommand(sql, connection);
 
-        cmd.Parameters.AddWithValue($"@{IdFieldName}", id);
-        AddStampParameters(cmd);
+		cmd.Parameters.AddWithValue($"@{IdFieldName}", id);
+		AddStampParameters(cmd);
 
-        cmd.ExecuteNonQuery();
-    }
+		cmd.ExecuteNonQuery();
+	}
 
-    /// <summary>
-    /// Selects the record with the given id and reads all fields.
-    /// </summary>
-    private static void SelectRecord(OleDbConnection connection, string id)
-    {
-        string sql = $"SELECT [{IdFieldName}], {GetStampFieldList()} FROM [{TableName}] WHERE [{IdFieldName}] = ?";
-        using var cmd = new OleDbCommand(sql, connection);
-        cmd.Parameters.AddWithValue($"@{IdFieldName}", id);
+	/// <summary>
+	/// Selects the record with the given id and reads all fields.
+	/// </summary>
+	private static void SelectRecord(OleDbConnection connection, string id)
+	{
+		string sql = $"SELECT [{IdFieldName}], {GetStampFieldList()} FROM [{TableName}] WHERE [{IdFieldName}] = ?";
+		using var cmd = new OleDbCommand(sql, connection);
+		cmd.Parameters.AddWithValue($"@{IdFieldName}", id);
 
-        using var reader = cmd.ExecuteReader();
-        if (reader.Read())
-        {
-            // Read the id field
-            _ = reader.GetString(0);
+		using var reader = cmd.ExecuteReader();
+		if (reader.Read())
+		{
+			// Read the id field
+			_ = reader.GetString(0);
 
-            // Read all stamp fields
-            for (int i = 1; i <= NumberOfDateTimeFields; i++)
-            {
-                if (!reader.IsDBNull(i))
-                {
-                    _ = reader.GetValue(i);
-                }
-            }
-        }
-    }
+			// Read all stamp fields
+			for (int i = 1; i <= NumberOfStampFields; i++)
+			{
+				if (!reader.IsDBNull(i))
+				{
+					_ = reader.GetValue(i);
+				}
+			}
+		}
+	}
 
-    /// <summary>
-    /// Updates all stamp fields of the record with the given id to the current UTC time.
-    /// </summary>
-    private static void UpdateRecord(OleDbConnection connection, string id)
-    {
-        string setClause = string.Join(", ", Enumerable.Range(1, NumberOfDateTimeFields)
-            .Select(i => $"[{StampFieldPrefix}{i}] = ?"));
+	/// <summary>
+	/// Updates all stamp fields of the record with the given id to the current UTC time.
+	/// </summary>
+	private static void UpdateRecord(OleDbConnection connection, string id)
+	{
+		string setClause = string.Join(", ", Enumerable.Range(1, NumberOfStampFields)
+			.Select(i => $"[{StampFieldPrefix}{i}] = ?"));
 
-        string sql = $"UPDATE [{TableName}] SET {setClause} WHERE [{IdFieldName}] = ?";
-        using var cmd = new OleDbCommand(sql, connection);
+		string sql = $"UPDATE [{TableName}] SET {setClause} WHERE [{IdFieldName}] = ?";
+		using var cmd = new OleDbCommand(sql, connection);
 
-        AddStampParameters(cmd);
-        cmd.Parameters.AddWithValue($"@{IdFieldName}", id);
+		AddStampParameters(cmd);
+		cmd.Parameters.AddWithValue($"@{IdFieldName}", id);
 
-        cmd.ExecuteNonQuery();
-    }
+		cmd.ExecuteNonQuery();
+	}
 }
