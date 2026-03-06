@@ -211,7 +211,7 @@ internal class Program
 
 	private static bool RecordExists(OleDbConnection connection, string id)
 	{
-		string sql = $"SELECT 1 FROM {Q(TableName)} WHERE {Q(IdFieldName)} = ?";
+		string sql = $"SELECT 1 FROM {Q(TableName)} WHERE [{IdFieldName}] = ?";
 		using var cmd = new OleDbCommand(sql, connection);
 		cmd.Parameters.AddWithValue($"@{IdFieldName}", id);
 
