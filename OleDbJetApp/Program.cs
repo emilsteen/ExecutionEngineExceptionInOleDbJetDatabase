@@ -211,15 +211,13 @@ internal class Program
 
 	private static bool RecordExists(OleDbConnection connection, string id)
 	{
-		string sql = $"SELECT 1 FROM {Q(TableName)} WHERE {Q(IdFieldName)} = ?";
+		string sql = $"SELECT {Q(IdFieldName)} FROM {Q(TableName)} WHERE {Q(IdFieldName)} = ?";
 		using var cmd = new OleDbCommand(sql, connection);
 		cmd.Parameters.AddWithValue($"@{IdFieldName}", id);
 
 		var result = cmd.ExecuteScalar();
-		if (result is int intResult)
-			return intResult == 1;
 
-		return false;
+		return result != null;
 	}
 
 	/// <summary>
